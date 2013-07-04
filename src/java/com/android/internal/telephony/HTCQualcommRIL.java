@@ -116,15 +116,10 @@ public class HTCQualcommRIL extends RIL implements CommandsInterface {
             case RIL_UNSOL_RESPONSE_DATA_NETWORK_STATE_CHANGED:
                 if (RILJ_LOGD) unsljLogRet(response, ret);
 
-                boolean skipRadioPowerOff = needsOldRilFeature("skipradiooff");
-
-                // Initial conditions
-                if (!skipRadioPowerOff) {
-                    setRadioPower(false, null);
+                if (mExitEmergencyCallbackModeRegistrants != null) {
+                    mExitEmergencyCallbackModeRegistrants.notifyRegistrants(
+                                        new AsyncResult (null, null, null));
                 }
-                setPreferredNetworkType(mPreferredNetworkType, null);
-                setCdmaSubscriptionSource(mCdmaSubscription, null);
-                notifyRegistrantsRilConnectionChanged(((int[])ret)[0]);
                 break;
             case RIL_UNSOL_RIL_CONNECTED: {
                 if (RILJ_LOGD) unsljLogRet(response, ret);
