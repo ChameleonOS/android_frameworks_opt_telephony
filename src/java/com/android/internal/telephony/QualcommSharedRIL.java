@@ -29,11 +29,15 @@ import android.telephony.SmsMessage;
 import android.os.SystemProperties;
 import android.telephony.SignalStrength;
 import android.text.TextUtils;
-import android.util.Log;
+import android.telephony.Rlog;
 
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
+import com.android.internal.telephony.dataconnection.DataCallResponse;
+import com.android.internal.telephony.dataconnection.DcFailCause;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus;
+import com.android.internal.telephony.uicc.IccCardStatus;
 
 import java.util.ArrayList;
 
@@ -104,8 +108,8 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
     getIMSI(Message result) {
         RILRequest rr = RILRequest.obtain(RIL_REQUEST_GET_IMSI, result);
 
-        rr.mp.writeInt(1);
-        rr.mp.writeString(mAid);
+        rr.mParcel.writeInt(1);
+        rr.mParcel.writeString(mAid);
 
         if (RILJ_LOGD) riljLog(rr.serialString() +
                               "> getIMSI:RIL_REQUEST_GET_IMSI " +
@@ -128,15 +132,15 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
         if (mUSIM)
             path = path.replaceAll("7F20$","7FFF");
 
-        rr.mp.writeInt(command);
-        rr.mp.writeInt(fileid);
-        rr.mp.writeString(path);
-        rr.mp.writeInt(p1);
-        rr.mp.writeInt(p2);
-        rr.mp.writeInt(p3);
-        rr.mp.writeString(data);
-        rr.mp.writeString(pin2);
-        rr.mp.writeString(mAid);
+        rr.mParcel.writeInt(command);
+        rr.mParcel.writeInt(fileid);
+        rr.mParcel.writeString(path);
+        rr.mParcel.writeInt(p1);
+        rr.mParcel.writeInt(p2);
+        rr.mParcel.writeInt(p3);
+        rr.mParcel.writeString(data);
+        rr.mParcel.writeString(pin2);
+        rr.mParcel.writeString(mAid);
 
         if (RILJ_LOGD) riljLog(rr.serialString() + "> iccIO: "
                     + " aid: " + mAid + " "
@@ -190,10 +194,10 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
         int appIndex = -1;
         if (mPhoneType == RILConstants.CDMA_PHONE && !skipCdmaSubcription) {
             appIndex = status.mCdmaSubscriptionAppIndex;
-            Log.d(LOG_TAG, "This is a CDMA PHONE " + appIndex);
+            Rlog.d(LOG_TAG, "This is a CDMA PHONE " + appIndex);
         } else {
             appIndex = status.mGsmUmtsSubscriptionAppIndex;
-            Log.d(LOG_TAG, "This is a GSM PHONE " + appIndex);
+            Rlog.d(LOG_TAG, "This is a GSM PHONE " + appIndex);
         }
 
         if (numApplications > 0) {
@@ -205,20 +209,20 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
 
             if (TextUtils.isEmpty(mAid))
                mAid = "";
-            Log.d(LOG_TAG, "mAid " + mAid);
+            Rlog.d(LOG_TAG, "mAid " + mAid);
         }
 
         return status;
     }
 
     @Override
-    protected DataCallState getDataCallState(Parcel p, int version) {
-        DataCallState dataCall = new DataCallState();
+    protected DataCallResponse getDataCallResponse(Parcel p, int version) {
+        DataCallResponse dataCall = new DataCallResponse();
 
         boolean oldRil = needsOldRilFeature("datacall");
 
         if (!oldRil && version < 5) {
-            return super.getDataCallState(p, version);
+            return super.getDataCallResponse(p, version);
         } else if (!oldRil) {
             dataCall.version = version;
             dataCall.status = p.readInt();
@@ -227,9 +231,9 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
             dataCall.active = p.readInt();
             dataCall.type = p.readString();
             dataCall.ifname = p.readString();
-            if ((dataCall.status == DataConnection.FailCause.NONE.getErrorCode()) &&
+            if ((dataCall.status == DcFailCause.NONE.getErrorCode()) &&
                     TextUtils.isEmpty(dataCall.ifname) && dataCall.active != 0) {
-              throw new RuntimeException("getDataCallState, no ifname");
+              throw new RuntimeException("getDataCallResponse, no ifname");
             }
             String addresses = p.readString();
             if (!TextUtils.isEmpty(addresses)) {
@@ -273,20 +277,20 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
     @Override
     protected Object
     responseSetupDataCall(Parcel p) {
-        DataCallState dataCall;
+        DataCallResponse dataCall;
 
         boolean oldRil = needsOldRilFeature("datacall");
 
         if (!oldRil)
            return super.responseSetupDataCall(p);
 
-        dataCall = new DataCallState();
+        dataCall = new DataCallResponse();
         dataCall.version = 4;
 
         dataCall.cid = 0; // Integer.parseInt(p.readString());
         p.readString();
         dataCall.ifname = p.readString();
-        if ((dataCall.status == DataConnection.FailCause.NONE.getErrorCode()) &&
+        if ((dataCall.status == DcFailCause.NONE.getErrorCode()) &&
              TextUtils.isEmpty(dataCall.ifname) && dataCall.active != 0) {
             throw new RuntimeException(
                     "RIL_REQUEST_SETUP_DATA_CALL response, no ifname");
@@ -386,7 +390,7 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
         rr = findAndRemoveRequestFromList(serial);
 
         if (rr == null) {
-            Log.w(LOG_TAG, "Unexpected solicited response! sn: "
+            Rlog.w(LOG_TAG, "Unexpected solicited response! sn: "
                             + serial + " error: " + error);
             return;
         }
@@ -523,7 +527,7 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
             }} catch (Throwable tr) {
                 // Exceptions here usually mean invalid RIL responses
 
-                Log.w(LOG_TAG, rr.serialString() + "< "
+                Rlog.w(LOG_TAG, rr.serialString() + "< "
                         + requestToString(rr.mRequest)
                         + " exception, possible invalid RIL response", tr);
 
@@ -673,13 +677,13 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
             switch (paramMessage.what) {
                 case EVENT_RADIO_ON:
                     mRadioOn = true;
-                    Log.d(LOG_TAG, "Radio on -> Forcing sim status update");
+                    Rlog.d(LOG_TAG, "Radio on -> Forcing sim status update");
                     sendMessage(obtainMessage(EVENT_ICC_STATUS_CHANGED));
                     break;
                 case EVENT_GET_ICC_STATUS_DONE:
                     AsyncResult asyncResult = (AsyncResult) paramMessage.obj;
                     if (asyncResult.exception != null) {
-                        Log.e (LOG_TAG, "IccCardStatusDone shouldn't return exceptions!", asyncResult.exception);
+                        Rlog.e (LOG_TAG, "IccCardStatusDone shouldn't return exceptions!", asyncResult.exception);
                         break;
                     }
                     IccCardStatus status = (IccCardStatus) asyncResult.result;
@@ -693,10 +697,10 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
                         int appIndex = -1;
                         if (mPhoneType == RILConstants.CDMA_PHONE && !skipCdmaSubcription) {
                             appIndex = status.mCdmaSubscriptionAppIndex;
-                            Log.d(LOG_TAG, "This is a CDMA PHONE " + appIndex);
+                            Rlog.d(LOG_TAG, "This is a CDMA PHONE " + appIndex);
                         } else {
                             appIndex = status.mGsmUmtsSubscriptionAppIndex;
-                            Log.d(LOG_TAG, "This is a GSM PHONE " + appIndex);
+                            Rlog.d(LOG_TAG, "This is a GSM PHONE " + appIndex);
                         }
 
                         IccCardApplicationStatus application = status.mApplications[appIndex];
@@ -713,7 +717,7 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
                                         mRil.setRadioState(CommandsInterface.RadioState.RADIO_ON);
                                         break;
                                     default:
-                                        Log.e(LOG_TAG, "Currently we don't handle SIMs of type: " + app_type);
+                                        Rlog.e(LOG_TAG, "Currently we don't handle SIMs of type: " + app_type);
                                         return;
                                 }
                                 break;
@@ -725,7 +729,7 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
                                         mRil.setRadioState(CommandsInterface.RadioState.RADIO_ON);
                                         break;
                                     default:
-                                        Log.e(LOG_TAG, "Currently we don't handle SIMs of type: " + app_type);
+                                        Rlog.e(LOG_TAG, "Currently we don't handle SIMs of type: " + app_type);
                                         return;
                                 }
                                 break;
@@ -736,17 +740,17 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
                     break;
                 case EVENT_ICC_STATUS_CHANGED:
                     if (mRadioOn) {
-                        Log.d(LOG_TAG, "Received EVENT_ICC_STATUS_CHANGED, calling getIccCardStatus");
+                        Rlog.d(LOG_TAG, "Received EVENT_ICC_STATUS_CHANGED, calling getIccCardStatus");
                          mRil.getIccCardStatus(obtainMessage(EVENT_GET_ICC_STATUS_DONE, paramMessage.obj));
                     } else {
-                         Log.d(LOG_TAG, "Received EVENT_ICC_STATUS_CHANGED while radio is not ON. Ignoring");
+                         Rlog.d(LOG_TAG, "Received EVENT_ICC_STATUS_CHANGED while radio is not ON. Ignoring");
                     }
                     break;
                 case EVENT_RADIO_OFF_OR_UNAVAILABLE:
                     mRadioOn = false;
                     // disposeCards(); // to be verified;
                 default:
-                    Log.e(LOG_TAG, " Unknown Event " + paramMessage.what);
+                    Rlog.e(LOG_TAG, " Unknown Event " + paramMessage.what);
                     break;
             }
         }
@@ -766,8 +770,8 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
 
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
 
-        rr.mp.writeInt(3);
-        rr.mp.writeString(netpin);
+        rr.mParcel.writeInt(3);
+        rr.mParcel.writeString(netpin);
 
         send(rr);
     }
@@ -782,9 +786,9 @@ public class QualcommSharedRIL extends RIL implements CommandsInterface {
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
                     + " " + operatorNumeric);
 
-        rr.mp.writeInt(2);
-        rr.mp.writeString(operatorNumeric);
-        rr.mp.writeString("NOCHANGE");
+        rr.mParcel.writeInt(2);
+        rr.mParcel.writeString(operatorNumeric);
+        rr.mParcel.writeString("NOCHANGE");
 
         send(rr);
     }

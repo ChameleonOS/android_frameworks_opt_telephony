@@ -46,22 +46,13 @@ public class IccSmsInterfaceManagerProxy extends ISms.Stub {
     }
 
     public void setmIccSmsInterfaceManager(IccSmsInterfaceManager iccSmsInterfaceManager) {
-        this.mIccSmsInterfaceManager = iccSmsInterfaceManager;
+        mIccSmsInterfaceManager = iccSmsInterfaceManager;
     }
 
     private void createWakelock() {
         PowerManager pm = (PowerManager)mContext.getSystemService(Context.POWER_SERVICE);
         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SMSDispatcher");
         mWakeLock.setReferenceCounted(true);
-    }
-
-    @Override
-    public void registerSmsMiddleware(String name, ISmsMiddleware middleware) throws android.os.RemoteException {
-        if (!"1".equals(SystemProperties.get("persist.sys.sms_debug", "0"))) {
-            mContext.enforceCallingPermission(
-                    "android.permission.INTERCEPT_SMS", "");
-        }
-        mMiddleware.put(name, middleware);
     }
 
     private Context mContext;
@@ -82,41 +73,31 @@ public class IccSmsInterfaceManagerProxy extends ISms.Stub {
     }
 
     @Override
-    public void synthesizeMessages(String originatingAddress, String scAddress, List<String> messages, long timestampMillis) throws RemoteException {
-        // if not running in debug mode
-        if (!"1".equals(SystemProperties.get("persist.sys.sms_debug", "0"))) {
-            mContext.enforceCallingPermission(
-                    "android.permission.BROADCAST_SMS", "");
-        }
-        byte[][] pdus = new byte[messages.size()][];
-        for (int i = 0; i < messages.size(); i++) {
-            SyntheticSmsMessage message = new SyntheticSmsMessage(originatingAddress, scAddress, messages.get(i), timestampMillis);
-            pdus[i] = message.getPdu();
-        }
-        dispatchPdus(pdus);
-    }
-
     public boolean
-    updateMessageOnIccEf(int index, int status, byte[] pdu) throws android.os.RemoteException {
-         return mIccSmsInterfaceManager.updateMessageOnIccEf(index, status, pdu);
+    updateMessageOnIccEf(String callingPackage, int index, int status, byte[] pdu) {
+         return mIccSmsInterfaceManager.updateMessageOnIccEf(callingPackage, index, status, pdu);
     }
 
-    public boolean copyMessageToIccEf(int status, byte[] pdu,
-            byte[] smsc) throws android.os.RemoteException {
-        return mIccSmsInterfaceManager.copyMessageToIccEf(status, pdu, smsc);
+    @Override
+    public boolean copyMessageToIccEf(String callingPackage, int status, byte[] pdu,
+            byte[] smsc) {
+        return mIccSmsInterfaceManager.copyMessageToIccEf(callingPackage, status, pdu, smsc);
     }
 
-    public List<SmsRawData> getAllMessagesFromIccEf() throws android.os.RemoteException {
-        return mIccSmsInterfaceManager.getAllMessagesFromIccEf();
+    @Override
+    public List<SmsRawData> getAllMessagesFromIccEf(String callingPackage) {
+        return mIccSmsInterfaceManager.getAllMessagesFromIccEf(callingPackage);
     }
 
-    public void sendData(String destAddr, String scAddr, int destPort,
+    @Override
+    public void sendData(String callingPackage, String destAddr, String scAddr, int destPort,
             byte[] data, PendingIntent sentIntent, PendingIntent deliveryIntent) {
-        mIccSmsInterfaceManager.sendData(destAddr, scAddr, destPort, data,
+        mIccSmsInterfaceManager.sendData(callingPackage, destAddr, scAddr, destPort, data,
                 sentIntent, deliveryIntent);
     }
 
-    public void sendText(String destAddr, String scAddr,
+    @Override
+    public void sendText(String callingPackage, String destAddr, String scAddr,
             String text, PendingIntent sentIntent, PendingIntent deliveryIntent) {
         for (ISmsMiddleware middleware: mMiddleware.values()) {
             try {
@@ -127,10 +108,12 @@ public class IccSmsInterfaceManagerProxy extends ISms.Stub {
                 // TOOD: remove the busted middleware?
             }
         }
-        mIccSmsInterfaceManager.sendText(destAddr, scAddr, text, sentIntent, deliveryIntent);
+        mIccSmsInterfaceManager.sendText(callingPackage, destAddr, scAddr, text, sentIntent,
+                deliveryIntent);
     }
 
-    public void sendMultipartText(String destAddr, String scAddr,
+    @Override
+    public void sendMultipartText(String callingPackage, String destAddr, String scAddr,
             List<String> parts, List<PendingIntent> sentIntents,
             List<PendingIntent> deliveryIntents) throws android.os.RemoteException {
         for (ISmsMiddleware middleware: mMiddleware.values()) {
@@ -142,32 +125,38 @@ public class IccSmsInterfaceManagerProxy extends ISms.Stub {
                 // TOOD: remove the busted middleware?
             }
         }
-        mIccSmsInterfaceManager.sendMultipartText(destAddr, scAddr,
+        mIccSmsInterfaceManager.sendMultipartText(callingPackage, destAddr, scAddr,
                 parts, sentIntents, deliveryIntents);
     }
 
+    @Override
     public boolean enableCellBroadcast(int messageIdentifier) throws android.os.RemoteException {
         return mIccSmsInterfaceManager.enableCellBroadcast(messageIdentifier);
     }
 
+    @Override
     public boolean disableCellBroadcast(int messageIdentifier) throws android.os.RemoteException {
         return mIccSmsInterfaceManager.disableCellBroadcast(messageIdentifier);
     }
 
+    @Override
     public boolean enableCellBroadcastRange(int startMessageId, int endMessageId)
             throws android.os.RemoteException {
         return mIccSmsInterfaceManager.enableCellBroadcastRange(startMessageId, endMessageId);
     }
 
+    @Override
     public boolean disableCellBroadcastRange(int startMessageId, int endMessageId)
             throws android.os.RemoteException {
         return mIccSmsInterfaceManager.disableCellBroadcastRange(startMessageId, endMessageId);
     }
 
+    @Override
     public int getPremiumSmsPermission(String packageName) {
         return mIccSmsInterfaceManager.getPremiumSmsPermission(packageName);
     }
 
+    @Override
     public void setPremiumSmsPermission(String packageName, int permission) {
         mIccSmsInterfaceManager.setPremiumSmsPermission(packageName, permission);
     }
