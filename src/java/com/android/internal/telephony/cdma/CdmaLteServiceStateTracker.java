@@ -66,6 +66,13 @@ public class CdmaLteServiceStateTracker extends CdmaServiceStateTracker {
         AsyncResult ar;
         int[] ints;
         String[] strings;
+
+        if (!mPhone.mIsTheCurrentActivePhone) {
+            loge("Received message " + msg + "[" + msg.what + "]" +
+                    " while being destroyed. Ignoring.");
+            return;
+        }
+
         switch (msg.what) {
         case EVENT_POLL_STATE_GPRS:
             if (DBG) log("handleMessage EVENT_POLL_STATE_GPRS");
@@ -73,6 +80,7 @@ public class CdmaLteServiceStateTracker extends CdmaServiceStateTracker {
             handlePollStateResult(msg.what, ar);
             break;
         case EVENT_RUIM_RECORDS_LOADED:
+            updatePhoneObject();
             RuimRecords ruim = (RuimRecords)mIccRecords;
             if ((ruim != null) && ruim.isProvisioned()) {
                 mMdn = ruim.getMdn();
@@ -338,6 +346,10 @@ public class CdmaLteServiceStateTracker extends CdmaServiceStateTracker {
 
         mNewSS.setStateOutOfService(); // clean slate for next time
 
+        if (hasVoiceRadioTechnologyChanged) {
+            updatePhoneObject();
+        }
+
         if (hasDataRadioTechnologyChanged) {
             mPhone.setSystemProperty(TelephonyProperties.PROPERTY_DATA_NETWORK_TYPE,
                     ServiceState.rilRadioTechnologyToString(mSS.getRilDataRadioTechnology()));
@@ -440,7 +452,7 @@ public class CdmaLteServiceStateTracker extends CdmaServiceStateTracker {
         }
 
         if ((hasCdmaDataConnectionChanged || hasDataRadioTechnologyChanged)) {
-            log("pollStateDone: call notifyDataConnection");
+            notifyDataRegStateRilRadioTechnologyChanged();
             mPhone.notifyDataConnection(null);
         }
 
