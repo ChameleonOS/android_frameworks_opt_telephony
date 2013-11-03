@@ -2365,7 +2365,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return rr;
     }
 
-    protected void
+    protected RILRequest
     processSolicited (Parcel p) {
         int serial, error;
         boolean found = false;

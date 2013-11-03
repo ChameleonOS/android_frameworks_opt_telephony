@@ -57,7 +57,6 @@ import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.EventLogTags;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.gsm.GSMPhone;
-import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.uicc.IccRecords;
@@ -113,8 +112,6 @@ public final class DcTracker extends DcTrackerBase {
     /** Watches for changes to the APN db. */
     private ApnChangeObserver mApnObserver;
 
-    private CdmaSubscriptionSourceManager mCdmaSsm;
-
     //***** Constructor
 
     public DcTracker(PhoneBase p) {
@@ -140,12 +137,6 @@ public final class DcTracker extends DcTrackerBase {
                 DctConstants.EVENT_PS_RESTRICT_ENABLED, null);
         p.getServiceStateTracker().registerForPsRestrictedDisabled(this,
                 DctConstants.EVENT_PS_RESTRICT_DISABLED, null);
-
-        if (p.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
-            mCdmaSsm = CdmaSubscriptionSourceManager.getInstance(
-                    p.getContext(), p.mCi, this,
-                    DctConstants.EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED, null);
-        }
 
         mDataConnectionTracker = this;
 
@@ -199,10 +190,6 @@ public final class DcTracker extends DcTrackerBase {
 
         mPhone.getContext().getContentResolver().unregisterContentObserver(mApnObserver);
         mApnContexts.clear();
-
-        if (mCdmaSsm != null) {
-            mCdmaSsm.dispose(this);
-        }
 
         destroyDataConnections();
     }
@@ -460,12 +447,6 @@ public final class DcTracker extends DcTrackerBase {
             if (DBG) log("enableApnType: return APN_ALREADY_ACTIVE");
             return PhoneConstants.APN_ALREADY_ACTIVE;
         }
-        if (mPhone.mCi.needsOldRilFeature("singlepdp") && !PhoneConstants.APN_TYPE_DEFAULT.equals(apnType)) {
-            ApnContext defContext = mApnContexts.get(PhoneConstants.APN_TYPE_DEFAULT);
-            if (defContext.isEnabled()) {
-                setEnabled(apnTypeToId(PhoneConstants.APN_TYPE_DEFAULT), false);
-            }
-        }
         setEnabled(apnTypeToId(apnType), true);
         if (DBG) {
             log("enableApnType: new apn request for type " + apnType +
@@ -481,9 +462,6 @@ public final class DcTracker extends DcTrackerBase {
 
         if (apnContext != null) {
             setEnabled(apnTypeToId(type), false);
-            if (mPhone.mCi.needsOldRilFeature("singlepdp") && !PhoneConstants.APN_TYPE_DEFAULT.equals(type)) {
-                setEnabled(apnTypeToId(PhoneConstants.APN_TYPE_DEFAULT), true);
-            }
             if (apnContext.getState() != DctConstants.State.IDLE && apnContext.getState()
                     != DctConstants.State.FAILED) {
                 if (DBG) log("diableApnType: return APN_REQUEST_STARTED");
@@ -585,10 +563,6 @@ public final class DcTracker extends DcTrackerBase {
         boolean desiredPowerState = mPhone.getServiceStateTracker().getDesiredPowerState();
         IccRecords r = mIccRecords.get();
         boolean recordsLoaded = (r != null) ? r.getRecordsLoaded() : false;
-        boolean subscriptionFromNv = ( (mPhone.getPhoneType() ==
-                PhoneConstants.PHONE_TYPE_CDMA) &&
-                (mCdmaSsm.getCdmaSubscriptionSource()
-                == CdmaSubscriptionSourceManager.SUBSCRIPTION_FROM_NV) );
 
         boolean allowed =
                     (attachedState || mAutoAttachOnCreation) &&
@@ -604,9 +578,7 @@ public final class DcTracker extends DcTrackerBase {
             if (!(attachedState || mAutoAttachOnCreation)) {
                 reason += " - Attached= " + attachedState;
             }
-            if (!(subscriptionFromNv || recordsLoaded)) {
-                reason += " - SIM not loaded and not NV subscription";
-            }
+            if (!recordsLoaded) reason += " - SIM not loaded";
             if (mPhone.getState() != PhoneConstants.State.IDLE &&
                     !mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
                 reason += " - PhoneState= " + mPhone.getState();
@@ -659,7 +631,6 @@ public final class DcTracker extends DcTrackerBase {
     }
 
     private boolean trySetupData(ApnContext apnContext) {
-        boolean retValue = false;
         if (DBG) {
             log("trySetupData for type:" + apnContext.getApnType() +
                     " due to " + apnContext.getReason() + " apnContext=" + apnContext);
@@ -690,13 +661,10 @@ public final class DcTracker extends DcTrackerBase {
                 ArrayList<ApnSetting> waitingApns = buildWaitingApns(apnContext.getApnType(),
                         radioTech);
                 if (waitingApns.isEmpty()) {
+                    notifyNoData(DcFailCause.MISSING_UNKNOWN_APN, apnContext);
                     notifyOffApnsOfAvailability(apnContext.getReason());
-                    retValue = setupData(apnContext);
-                    if(!retValue) {
-                        notifyNoData(DcFailCause.MISSING_UNKNOWN_APN, apnContext);
-                    }
-                    notifyOffApnsOfAvailability(apnContext.getReason());
-                    return retValue;
+                    if (DBG) log("trySetupData: X No APN found retValue=false");
+                    return false;
                 } else {
                     apnContext.setWaitingApns(waitingApns);
                     if (DBG) {
@@ -724,41 +692,6 @@ public final class DcTracker extends DcTrackerBase {
             if (DBG) log ("trySetupData: X apnContext not 'ready' retValue=false");
             return false;
         }
-    }
-
-   /**
-    * Report on whether data connectivity can be setup for any APN.
-    * @param apnContext The apnContext
-    * @return boolean
-    */
-    private boolean canSetupData(ApnContext apnContext) {
-        if (apnContext.getState() != DctConstants.State.IDLE && apnContext.getState() != DctConstants.State.SCANNING) {
-            return false;
-        }
-
-        if (isDataAllowed(apnContext) && getAnyDataEnabled() && !isEmergency()) {
-            return true;
-        }
-
-        // Get the MMS retrieval settings. Defaults to enabled with roaming disabled
-        final ContentResolver resolver = mPhone.getContext().getContentResolver();
-        boolean mmsAutoRetrieval = Settings.System.getInt(resolver,
-                Settings.System.MMS_AUTO_RETRIEVAL, 1) == 1;
-        boolean mmsRetrievalRoaming = Settings.System.getInt(resolver,
-                Settings.System.MMS_AUTO_RETRIEVAL_ON_ROAMING, 0) == 1;
-
-        // Allow automatic Mms connections if user has enabled it
-        if (mmsAutoRetrieval && apnContext.getApnType().equals(PhoneConstants.APN_TYPE_MMS)) {
-            // don't allow MMS connections while roaming if disabled
-            TelephonyManager tm = (TelephonyManager)
-                    mPhone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
-            if (tm.isNetworkRoaming() && !mmsRetrievalRoaming) {
-                return false;
-            }
-            return true;
-        }
-
-        return false;
     }
 
     @Override
@@ -1086,29 +1019,8 @@ public final class DcTracker extends DcTrackerBase {
         int profileId = getApnProfileID(apnContext.getApnType());
         apnSetting = apnContext.getNextWaitingApn();
         if (apnSetting == null) {
-            if(PhoneConstants.PHONE_TYPE_CDMA==mPhone.getPhoneType()) {
-                String[] mDunApnTypes = { PhoneConstants.APN_TYPE_DUN };
-                final int mDefaultApnId = DctConstants.APN_DEFAULT_ID;
-                final String[] mDefaultApnTypes = {
-                    PhoneConstants.APN_TYPE_DEFAULT,
-                    PhoneConstants.APN_TYPE_MMS,
-                    PhoneConstants.APN_TYPE_HIPRI };
-                String[] types;
-                int apnId;
-                if (mRequestedApnType.equals(PhoneConstants.APN_TYPE_DUN)) {
-                    types = mDunApnTypes;
-                    apnId = DctConstants.APN_DUN_ID;
-                } else {
-                    types = mDefaultApnTypes;
-                    apnId = mDefaultApnId;
-                }
-                apnSetting = new ApnSetting(apnId, "", "", "", "", "", "", "", "", "",
-                                            "", 0, types, "IP", "IP", true, 0);
-                if (DBG) log("setupData: CDMA detected and apnSetting == null, use stubbed CDMA APN setting= " + apnSetting);
-            } else {
-                if (DBG) log("setupData: return for no apn found!");
-                return false;
-            }
+            if (DBG) log("setupData: return for no apn found!");
+            return false;
         }
 
         dcac = checkForCompatibleConnectedApnContext(apnContext);
@@ -1331,15 +1243,15 @@ public final class DcTracker extends DcTrackerBase {
         }
     }
 
-    private void onRecordsLoaded(String reason) {
+    private void onRecordsLoaded() {
         if (DBG) log("onRecordsLoaded: createAllApnList");
         createAllApnList();
         setInitialAttachApn();
         if (mPhone.mCi.getRadioState().isOn()) {
             if (DBG) log("onRecordsLoaded: notifying data availability");
-            notifyOffApnsOfAvailability(reason);
+            notifyOffApnsOfAvailability(Phone.REASON_SIM_LOADED);
         }
-        setupDataOnConnectableApns(reason);
+        setupDataOnConnectableApns(Phone.REASON_SIM_LOADED);
     }
 
     @Override
@@ -2215,7 +2127,7 @@ public final class DcTracker extends DcTrackerBase {
 
         switch (msg.what) {
             case DctConstants.EVENT_RECORDS_LOADED:
-                onRecordsLoaded(Phone.REASON_SIM_LOADED);
+                onRecordsLoaded();
                 break;
 
             case DctConstants.EVENT_DATA_CONNECTION_DETACHED:
@@ -2294,10 +2206,6 @@ public final class DcTracker extends DcTrackerBase {
                     loge("EVENT_CLEAN_UP_CONNECTION request w/o apn context, call super");
                     super.handleMessage(msg);
                 }
-                break;
-
-            case DctConstants.EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED:
-                onRecordsLoaded(Phone.REASON_NV_READY);
                 break;
 
             default:

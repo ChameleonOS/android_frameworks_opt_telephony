@@ -105,6 +105,9 @@ public class CatService extends Handler implements AppInterface {
     private static final int DEV_ID_KEYPAD      = 0x01;
     private static final int DEV_ID_UICC        = 0x81;
     private static final int DEV_ID_TERMINAL    = 0x82;
+    private static final int DEV_ID_NETWORK     = 0x83;
+
+    static final String STK_DEFAULT = "Default Message";
 
     // Samsung STK SEND_SMS
     static final int WAITING_SMS_RESULT = 2;
@@ -113,11 +116,7 @@ public class CatService extends Handler implements AppInterface {
     static final int SMS_SEND_OK = 0;
     static final int SMS_SEND_FAIL = 32790;
     static final int SMS_SEND_RETRY = 32810;
-    static final String STK_DEFAULT = "Defualt Message";
 
-    private static final int DEV_ID_NETWORK     = 0x83;
-
-    static final String STK_DEFAULT = "Default Message";
 
     /* Intentionally private for singleton */
     private CatService(CommandsInterface ci, UiccCardApplication ca, IccRecords ir,
